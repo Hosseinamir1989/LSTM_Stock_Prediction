@@ -72,7 +72,7 @@ LSTM_BA/
 ├── evaluation_tables.py               # Table generation and formatting utilities
 ├── main.py                            # CLI entry point for single-ticker training and evaluation
 │
-└── LSTM_BA________________________.ipynb   # Main interactive notebook (full pipeline)
+└── LSTM_BA.ipynb                           # Main interactive notebook (full pipeline)
 ```
 
 ---
@@ -121,7 +121,7 @@ With 7 groups there are **127 non-empty subsets** evaluated per ticker, plus one
 
 ## Pipeline Stages (Notebook)
 
-The main notebook (`LSTM_BA________________________.ipynb`) runs the following stages in order:
+The main notebook (`LSTM_BA.ipynb`) runs the following stages in order:
 
 | Cell | Stage | Description |
 |---|---|---|
@@ -338,7 +338,7 @@ C:\Users\Hossein\AppData\Local\Microsoft\WindowsApps\python3.11.exe
 
 ### Option 1 — Interactive Notebook (recommended)
 
-Open `LSTM_BA________________________.ipynb` in Jupyter Lab or VS Code.
+Open `LSTM_BA.ipynb` in Jupyter Lab or VS Code.
 
 1. Set the active ticker in `config/config.yaml`
 2. Set `target.type` to `price`, `return`, or `direction`
