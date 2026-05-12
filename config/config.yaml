@@ -1,0 +1,86 @@
+tickers:
+  #- BRK-B
+  #- AAPL
+  #- AMZN
+  #- NVDA
+  #- GOOGL
+  #- DTE
+  #- VOW3
+  #- SAP
+  #- BAS
+  #- SIE
+
+
+backtest:
+  initial_cash: 1000
+  pnl_output_folder: runs/pnl
+
+
+features:
+  stationary: false
+
+
+stationarity:
+  enable: false
+  zscore_window: 30
+  add_pct: true
+  add_log: false
+
+
+split:
+  train_end: 0.70
+  val_end: 0.80
+
+
+data_cleaning:
+  add_missing_business_days: False
+  imputation:
+    strategy: median
+    rolling_window: 20
+
+
+target:
+  type: price        # price | return | direction
+  return_type: simple  # simple | log
+  direction_cutoff: 0.0
+  direction_probability_threshold: 0.5
+
+
+paths:
+  csv_folder: stock_data_histogram
+  model_folder_lstm: lstm_models
+  result_file_lstm: lstm_results.csv
+
+walk_forward:
+  enable: true
+  expanding: true
+  min_train_size: 0.50
+  val_size: 0.10
+  step_size: 0.05
+
+
+technical_indicators:
+  rsi_window: 14
+  sma_window: 20
+  ema_window: 20
+  bb_window: 20
+  bb_std: 2
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  momentum_window: 10
+  vol_window: 20
+  log_return: false
+  directional_features: false
+
+
+lstm:
+  window_size: 10 # Number of past days to use for prediction
+  epochs: 60
+  batch_size: 8
+  learning_rate: 0.0001
+  dropout: 0.2
+
+
+trading:
+  threshold_pct: 0.002

@@ -1,0 +1,39 @@
+# ============================================================
+# LSTM Stock Price Prediction Pipeline — requirements.txt
+# Python 3.11 (tested with python3.11 from Microsoft AppData)
+#
+# Install:
+#   pip install -r requirements.txt
+#
+# For a full environment snapshot of every installed package
+# (including transitive dependencies), see requirements_freeze.txt
+# ============================================================
+
+# Core ML / Deep Learning
+tensorflow==2.19.0
+keras==3.9.2
+scikit-learn==1.6.1
+
+# Data & numerics
+numpy==2.1.0
+pandas==2.2.3
+scipy==1.15.2
+
+# Technical indicators & statistics
+statsmodels==0.14.4
+
+# Feature importance / explainability
+shap==0.51.0
+
+# Visualization
+matplotlib==3.10.1
+seaborn==0.13.2
+
+# Config & serialization
+PyYAML==6.0.2
+joblib==1.4.2
+
+# Jupyter / notebook support
+ipykernel==6.29.5
+ipython==9.0.2
+ipywidgets==8.1.7
