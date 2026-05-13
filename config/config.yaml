@@ -1,6 +1,6 @@
 tickers:
   #- BRK-B
-  #- AAPL
+  - AAPL
   #- AMZN
   #- NVDA
   #- GOOGL

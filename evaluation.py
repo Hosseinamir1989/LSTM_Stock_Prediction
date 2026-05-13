@@ -276,42 +276,51 @@ def simulate_pnl(
     initial_cash=80000,
     ticker="Unknown",
     output_folder="output",
-    force_first_buy=False,           # recommended: False for fair eval
+    force_first_buy=False,           # recommended: False for fair evaluation
     exclude_unpaired_last_buy=True,
-    fee_rate=0.0005,                # 5 bps per trade
-    slippage_bps=2,                 # 2 bps
+    fee_rate=0.0005,                 # 5 bps per trade
+    slippage_bps=2,                  # 2 bps
     stop_loss_pct=None,
     take_profit_pct=None,
     max_hold_days=None,
-    threshold_pct=0.0               # deadzone on predicted move in pct (0.002=0.2%)
+    threshold_pct=0.0                # deadzone on predicted move in pct (0.002=0.2%)
 ):
     """
     Trading simulator aligned with 1-step-ahead prediction indexing.
 
-    Assumption: y_pred[t] predicts y_true[t+1].
+    Assumption:
+        y_pred[t] predicts y_true[t+1].
 
-    Decision at time t (executed at t+1 close):
-      pred_move_pct = (y_pred[t] - y_true[t]) / y_true[t]
-      Buy  if pred_move_pct >  threshold_pct and no position
-      Sell if pred_move_pct < -threshold_pct and in position
+    Decision at time t, executed at t+1 close:
+        pred_move_pct = (y_pred[t] - y_true[t]) / y_true[t]
+        Buy  if pred_move_pct >  threshold_pct and no position is open.
+        Sell if pred_move_pct < -threshold_pct and a position is open.
 
-    Execution price: next-day close (y_true[t+1]) with slippage.
+    Important metric definition:
+        P&L Ratio = Final Portfolio Value / Initial Capital
+
+    This matches the thesis definition. The old implementation used an average
+    gain/loss ratio, which is more similar to a profit factor and can become
+    unrealistically large when total/average losses are close to zero.
     """
-    y_true = np.asarray(y_true, dtype=float)
-    y_pred = np.asarray(y_pred, dtype=float)
+    y_true = np.asarray(y_true, dtype=float).reshape(-1)
+    y_pred = np.asarray(y_pred, dtype=float).reshape(-1)
 
     n = min(len(y_pred), len(y_true) - 1)
     if n <= 0:
-        return {
+        result = {
             "Ticker": ticker,
             "Final Cash": round(float(initial_cash), 2),
+            "Final Portfolio Value": round(float(initial_cash), 2),
             "Total Gain": 0.0,
             "Total Loss": 0.0,
             "Winning Trades": 0,
             "Losing Trades": 0,
-            "P&L Ratio": 0.0,
+            "P&L Ratio": 1.0,
+            "Profit Factor": 0.0,
             "Win Ratio": 0.0,
-        }, pd.DataFrame()
+        }
+        return result, pd.DataFrame()
 
     cash = float(initial_cash)
     shares = 0
@@ -326,12 +335,13 @@ def simulate_pnl(
 
     def exec_buy(day_idx, raw_price):
         nonlocal cash, shares, entry_price, entry_day, trade_log
+
         px = float(raw_price) * (1.0 + slippage_bps / 10000.0)
         max_shares = int(cash // px)
         if max_shares <= 0:
             return False
 
-        # ensure fees fit cash
+        # Ensure that the notional value plus transaction fee fits into cash.
         while max_shares > 0:
             notional = max_shares * px
             fee = notional * fee_rate
@@ -349,7 +359,14 @@ def simulate_pnl(
         entry_price = px
         entry_day = day_idx
 
-        trade_log.append({"Day": day_idx, "Action": "Buy", "Price": px, "Shares": shares, "Fee": fee})
+        trade_log.append({
+            "Day": day_idx,
+            "Action": "Buy",
+            "Price": px,
+            "Shares": shares,
+            "Fee": fee,
+            "Cash_After": cash,
+        })
         return True
 
     def exec_sell(day_idx, raw_price, reason="Sell"):
@@ -373,27 +390,33 @@ def simulate_pnl(
 
         cash += (notional - fee)
 
-        trade_log.append({"Day": day_idx, "Action": reason, "Price": px, "Shares": shares, "PnL": pnl, "Fee": fee})
+        trade_log.append({
+            "Day": day_idx,
+            "Action": reason,
+            "Price": px,
+            "Shares": shares,
+            "PnL": pnl,
+            "Fee": fee,
+            "Cash_After": cash,
+        })
 
         shares = 0
         entry_price = 0.0
         entry_day = None
         return True
 
-    # Main loop: t=0..n-1 corresponds to execution day t+1
+    # Main loop: t=0..n-1 corresponds to execution day t+1.
     for t in range(n):
         today_price = float(y_true[t])
         tomorrow_price = float(y_true[t + 1])
-        predicted_price = float(y_pred[t])  # ✅ aligned with DA/SA
+        predicted_price = float(y_pred[t])
+        day_exec = t + 1
 
-        day_exec = t + 1  # trade executes at next-day close
-
-        # optional: force first action buy (not recommended for fair benchmarking)
         if force_first_buy and t == 0 and shares == 0:
             exec_buy(day_exec, tomorrow_price)
             continue
 
-        # risk controls (checked on execution price day)
+        # Risk controls are checked against the execution day's true close price.
         if shares > 0:
             if stop_loss_pct is not None and tomorrow_price <= entry_price * (1.0 - float(stop_loss_pct)):
                 exec_sell(day_exec, tomorrow_price, reason="Sell (StopLoss)")
@@ -405,7 +428,6 @@ def simulate_pnl(
                 exec_sell(day_exec, tomorrow_price, reason="Sell (MaxHold)")
                 continue
 
-        # signal rule with deadzone threshold
         pred_move_pct = (predicted_price - today_price) / today_price if today_price != 0 else 0.0
 
         if pred_move_pct > float(threshold_pct) and shares == 0:
@@ -413,7 +435,8 @@ def simulate_pnl(
         elif pred_move_pct < -float(threshold_pct) and shares > 0:
             exec_sell(day_exec, tomorrow_price, reason="Sell")
 
-    # Exclude last unpaired BUY (undo last buy)
+    # Optional: remove a final open buy if it has no matching sell in the test period.
+    # This keeps the analysis based only on completed trades.
     if exclude_unpaired_last_buy and shares > 0:
         last_buy_idx = None
         for j in range(len(trade_log) - 1, -1, -1):
@@ -426,6 +449,8 @@ def simulate_pnl(
             px = float(buy_entry["Price"])
             sh = int(buy_entry["Shares"])
             fee = float(buy_entry.get("Fee", 0.0))
+
+            # Undo the buy because it was not paired with a sell inside the evaluation period.
             cash += (sh * px + fee)
             trade_log = trade_log[:last_buy_idx] + trade_log[last_buy_idx + 1:]
 
@@ -433,21 +458,28 @@ def simulate_pnl(
         entry_price = 0.0
         entry_day = None
 
-    avg_gain = total_gain / winning_trades if winning_trades > 0 else 0.0
-    avg_loss = total_loss / losing_trades if losing_trades > 0 else 1.0
-    pnl_ratio = (avg_gain / avg_loss) if avg_loss != 0 else 0.0
+    # Final portfolio value includes any open position if exclude_unpaired_last_buy=False.
+    final_price = float(y_true[n])
+    final_position_value = shares * final_price
+    final_portfolio_value = cash + final_position_value
+
+    pnl_ratio = final_portfolio_value / float(initial_cash) if initial_cash != 0 else np.nan
+    profit_factor = total_gain / total_loss if total_loss > 0 else (np.inf if total_gain > 0 else 0.0)
     total_trades = winning_trades + losing_trades
-    win_ratio = round(winning_trades / total_trades, 4) if total_trades > 0 else 0.0
+    win_ratio = winning_trades / total_trades if total_trades > 0 else 0.0
 
     result = {
         "Ticker": ticker,
         "Final Cash": round(cash, 2),
-        "Total Gain": round(total_gain, 2),
-        "Total Loss": round(total_loss, 2),
+        "Final Portfolio Value": round(float(final_portfolio_value), 2),
+        "Open Position Value": round(float(final_position_value), 2),
+        "Total Gain": round(float(total_gain), 2),
+        "Total Loss": round(float(total_loss), 2),
         "Winning Trades": int(winning_trades),
         "Losing Trades": int(losing_trades),
-        "P&L Ratio": round(pnl_ratio, 2),
-        "Win Ratio": win_ratio,
+        "P&L Ratio": round(float(pnl_ratio), 4),
+        "Profit Factor": round(float(profit_factor), 4) if np.isfinite(profit_factor) else np.inf,
+        "Win Ratio": round(float(win_ratio), 4),
     }
 
     trade_log_df = pd.DataFrame(trade_log)
@@ -455,6 +487,87 @@ def simulate_pnl(
     trade_log_df.to_csv(os.path.join(output_folder, f"pnl_research_style_{ticker}.csv"), index=False)
 
     return result, trade_log_df
+
+
+def sanity_check_simulate_pnl(output_folder="output/pnl_sanity_checks"):
+    """
+    Simple sanity checks for simulate_pnl().
+
+    These checks are intentionally small and interpretable:
+      1. No-trade case: P&L Ratio should remain 1.0.
+      2. Buy-and-hold-like case: open position is valued at the final price.
+      3. One completed losing trade: P&L Ratio should be below 1.0.
+
+    The tests use fee_rate=0 and slippage_bps=0 so that the expected behavior is easy to inspect.
+    """
+    checks = []
+
+    # 1) No trade: predictions equal today's price, so no Buy/Sell signal is triggered.
+    y_true = np.array([100, 101, 102, 103], dtype=float)
+    y_pred = np.array([100, 101, 102], dtype=float)
+    res, trades = simulate_pnl(
+        y_true, y_pred,
+        initial_cash=1000,
+        ticker="SANITY_NO_TRADE",
+        output_folder=output_folder,
+        threshold_pct=0.0,
+        fee_rate=0.0,
+        slippage_bps=0,
+    )
+    checks.append({
+        "Case": "No trade",
+        "Expected": "P&L Ratio = 1.0 and zero trades",
+        "P&L Ratio": res["P&L Ratio"],
+        "Final Portfolio Value": res["Final Portfolio Value"],
+        "Trades": len(trades),
+        "Pass": np.isclose(res["P&L Ratio"], 1.0) and len(trades) == 0,
+    })
+
+    # 2) Buy-and-hold-like: model predicts upward movement every day.
+    # Keep the final open position and value it at the final price.
+    y_true = np.array([100, 110, 120, 130], dtype=float)
+    y_pred = np.array([111, 121, 131], dtype=float)
+    res, trades = simulate_pnl(
+        y_true, y_pred,
+        initial_cash=1000,
+        ticker="SANITY_BUY_HOLD",
+        output_folder=output_folder,
+        threshold_pct=0.0,
+        fee_rate=0.0,
+        slippage_bps=0,
+        exclude_unpaired_last_buy=False,
+    )
+    checks.append({
+        "Case": "Buy-and-hold-like",
+        "Expected": "P&L Ratio > 1.0 in rising market",
+        "P&L Ratio": res["P&L Ratio"],
+        "Final Portfolio Value": res["Final Portfolio Value"],
+        "Trades": len(trades),
+        "Pass": res["P&L Ratio"] > 1.0 and len(trades) >= 1,
+    })
+
+    # 3) One completed losing trade: buy after first signal, sell after later negative signal.
+    y_true = np.array([100, 100, 90, 90], dtype=float)
+    y_pred = np.array([110, 80, 80], dtype=float)
+    res, trades = simulate_pnl(
+        y_true, y_pred,
+        initial_cash=1000,
+        ticker="SANITY_ONE_LOSS",
+        output_folder=output_folder,
+        threshold_pct=0.0,
+        fee_rate=0.0,
+        slippage_bps=0,
+    )
+    checks.append({
+        "Case": "One completed losing trade",
+        "Expected": "P&L Ratio < 1.0 and at least one losing trade",
+        "P&L Ratio": res["P&L Ratio"],
+        "Final Portfolio Value": res["Final Portfolio Value"],
+        "Trades": len(trades),
+        "Pass": res["P&L Ratio"] < 1.0 and res["Losing Trades"] >= 1,
+    })
+
+    return pd.DataFrame(checks)
 
 
 
