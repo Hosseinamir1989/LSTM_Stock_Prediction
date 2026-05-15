@@ -2,11 +2,7 @@
 
 An end-to-end pipeline for forecasting next-day closing stock prices using LSTM neural networks, developed as part of a Bachelor's thesis. The pipeline covers the full ML workflow: raw data ingestion → technical indicator enrichment → brute-force feature combination search → walk-forward validation → final model retraining → PnL backtesting → thesis-ready visualizations.
 
-## Research Question
 
-> Do technical indicators add predictive value to an LSTM model for next-day stock price forecasting compared to a naive persistence baseline?
-
-All non-empty subsets of seven technical indicator groups (RSI, MACD, SMA, EMA, Bollinger Bands, Momentum, Rolling Volatility) are evaluated across multiple large-cap US stocks over the period 2020–2025.
 
 ## Features
 
